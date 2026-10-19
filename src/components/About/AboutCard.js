@@ -18,9 +18,6 @@ function AboutCard() {
             </span>
             .
             <br />
-            My Roll No. is <span className="purple">2024UCH1546</span> and my
-            current CGPA is <span className="purple">6.53/65.3</span>.
-            <br />
             <br />
             Apart from coding, some other activities that I love to do:
           </p>
