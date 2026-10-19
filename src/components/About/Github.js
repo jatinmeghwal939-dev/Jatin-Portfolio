@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Row } from "react-bootstrap";
 
+import fallbackData from "./leetcodeFallback.json";
+
 const USERNAME = "jatinmeghwal2005";
 const MONTHS   = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""];
@@ -35,73 +37,100 @@ function buildWeeks() {
   return weeks;
 }
 
-// ── LeetCode GraphQL query via CORS proxy ────────────────────────────
-const GQL_QUERY = `
-  query userCal($username: String!, $year: Int) {
-    matchedUser(username: $username) {
-      userCalendar(year: $year) {
-        streak
-        totalActiveDays
-        submissionCalendar
-      }
-    }
-  }
-`;
-
-async function fetchCalendarYear(year) {
-  // Primary: corsproxy.io  →  LeetCode GraphQL
-  const PROXY = "https://corsproxy.io/?url=";
-  const GQL   = "https://leetcode.com/graphql/";
-
-  const res = await fetch(PROXY + encodeURIComponent(GQL), {
-    method : "POST",
-    headers: { "Content-Type": "application/json" },
-    body   : JSON.stringify({ query: GQL_QUERY, variables: { username: USERNAME, year } }),
-  });
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return json?.data?.matchedUser?.userCalendar ?? null;
-}
-
 // ── Component ────────────────────────────────────────────────────────
 export default function LeetCode() {
-  const [submissions, setSubmissions] = useState({});
-  const [streak,      setStreak]      = useState(null);
-  const [totalActive, setTotalActive] = useState(null);
-  const [totalSubs,   setTotalSubs]   = useState(null);
-  const [loading,     setLoading]     = useState(true);
+  // Initialize with fallback snapshot so the UI is immediately populated
+  const [submissions, setSubmissions] = useState(fallbackData.submissions || {});
+  const [streak,      setStreak]      = useState(fallbackData.streak ?? 78);
+  const [totalActive, setTotalActive] = useState(fallbackData.totalActive ?? 211);
+  const [totalSubs,   setTotalSubs]   = useState(fallbackData.totalSubs ?? 720);
+  const [totalSolved, setTotalSolved] = useState(fallbackData.totalSolved ?? 338);
   const [error,       setError]       = useState(null);
   const [tooltip,     setTooltip]     = useState(null);
 
   useEffect(() => {
     async function load() {
+      // 1. Try reading from localStorage for fresh cached state
       try {
-        const cur  = new Date().getFullYear();
-        const prev = cur - 1;
+        const cached = localStorage.getItem("lc_calendar_data");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.submissions) setSubmissions(parsed.submissions);
+          if (parsed.streak != null) setStreak(parsed.streak);
+          if (parsed.totalActive != null) setTotalActive(parsed.totalActive);
+          if (parsed.totalSubs != null) setTotalSubs(parsed.totalSubs);
+          if (parsed.totalSolved != null) setTotalSolved(parsed.totalSolved);
+        }
+      } catch (err) {
+        console.warn("Storage read error:", err);
+      }
 
-        // Fetch both years in parallel
-        const [cal1, cal2] = await Promise.all([
-          fetchCalendarYear(cur),
-          fetchCalendarYear(prev),
+      // 2. Fetch live data asynchronously with timeout protection
+      try {
+        const curYear  = new Date().getFullYear();
+        const prevYear = curYear - 1;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+        const fetchCal = (yr) =>
+          fetch(`https://alfa-leetcode-api.onrender.com/${USERNAME}/calendar?year=${yr}`, {
+            signal: controller.signal,
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+
+        const fetchSolved = () =>
+          fetch(`https://alfa-leetcode-api.onrender.com/userProfile/${USERNAME}`, {
+            signal: controller.signal,
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+
+        const [cal1, cal2, profile] = await Promise.all([
+          fetchCal(curYear),
+          fetchCal(prevYear),
+          fetchSolved(),
         ]);
 
-        const merged = {
-          ...(cal2?.submissionCalendar ? JSON.parse(cal2.submissionCalendar) : {}),
-          ...(cal1?.submissionCalendar ? JSON.parse(cal1.submissionCalendar) : {}),
-        };
+        clearTimeout(timeoutId);
 
-        setSubmissions(merged);
-        setStreak(cal1?.streak ?? 0);
-        setTotalActive(cal1?.totalActiveDays ?? 0);
-        setTotalSubs(Object.values(merged).reduce((a, b) => a + b, 0));
+        if (cal1 || cal2) {
+          const sub1 = cal1?.submissionCalendar ? JSON.parse(cal1.submissionCalendar) : {};
+          const sub2 = cal2?.submissionCalendar ? JSON.parse(cal2.submissionCalendar) : {};
+          const merged = { ...fallbackData.submissions, ...sub2, ...sub1 };
+
+          const updatedStreak = cal1?.streak ?? fallbackData.streak;
+          const updatedActive = cal1?.totalActiveDays ?? fallbackData.totalActive;
+          const updatedSubs = Object.values(merged).reduce((a, b) => a + b, 0);
+          const updatedSolved = profile?.totalSolved ?? fallbackData.totalSolved ?? 338;
+
+          setSubmissions(merged);
+          setStreak(updatedStreak);
+          setTotalActive(updatedActive);
+          setTotalSubs(updatedSubs);
+          setTotalSolved(updatedSolved);
+          setError(null);
+
+          try {
+            localStorage.setItem(
+              "lc_calendar_data",
+              JSON.stringify({
+                submissions: merged,
+                streak: updatedStreak,
+                totalActive: updatedActive,
+                totalSubs: updatedSubs,
+                totalSolved: updatedSolved,
+                updatedAt: Date.now(),
+              })
+            );
+          } catch (e) {}
+        }
       } catch (e) {
-        console.error("LeetCode fetch error:", e);
-        setError("Could not load LeetCode data. The API may be unavailable.");
-      } finally {
-        setLoading(false);
+        console.warn("Could not fetch latest live LeetCode data, using cached/fallback snapshot.", e);
       }
     }
+
     load();
   }, []);
 
@@ -129,16 +158,6 @@ export default function LeetCode() {
         My <strong className="purple">LeetCode</strong> Activity
       </h1>
 
-      {/* ── Loading ── */}
-      {loading && (
-        <div style={{ textAlign: "center", padding: "50px 0" }}>
-          <div style={s.spinner} />
-          <p style={{ color: "#c084f5", marginTop: "16px", fontSize: "14px" }}>
-            Fetching your LeetCode data…
-          </p>
-        </div>
-      )}
-
       {/* ── Error ── */}
       {error && (
         <div style={{ textAlign: "center", padding: "30px", color: "#ff7b7b" }}>
@@ -152,12 +171,13 @@ export default function LeetCode() {
       )}
 
       {/* ── Content ── */}
-      {!loading && !error && (
+      {!error && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", gap: "24px" }}>
 
           {/* Stats cards */}
           <div style={s.statsRow}>
             {[
+              { label: "Problems Solved",   value: totalSolved },
               { label: "Total Submissions", value: totalSubs   },
               { label: "Active Days",        value: totalActive },
               { label: "Current Streak",     value: `${streak} day${streak !== 1 ? "s" : ""}` },
