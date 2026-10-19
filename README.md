@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <h2 align="center">
   Portfolio Website - v2.0<br/>
   <a href="https://soumyajit.vercel.app/" target="_blank">soumyajit.tech</a>
@@ -74,3 +75,7 @@ You will find all the components used and you can edit your information accordin
 Give a ⭐ if you like this website!
 
 <a href="https://www.buymeacoffee.com/soumyajit4419" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" alt="Buy Me A Coffee" height= "60px" width= "217px" ></a>
+=======
+# Jatin-Portfolio
+A simple portfolio website using HTML, CSS, JS
+>>>>>>> bff60c4b6c3d6ffd6c28609bac60f87f8baf3e7b
